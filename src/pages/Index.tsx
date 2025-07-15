@@ -29,8 +29,8 @@ const Index = () => {
       if (!isInitializing) {
         setIsInitializing(true);
         toast({
-          title: "Initializing AI models...",
-          description: "This may take a moment on first use.",
+          title: "Processing with Google Gemini AI...",
+          description: "Analyzing your document using advanced AI.",
         });
       }
 
@@ -40,13 +40,13 @@ const Index = () => {
       
       // Generate AI summary
       const aiSummary = await aiService.summarizeText(extractedText);
-      const formattedSummary = `AI Summary of ${file.name}:\n\n${aiSummary}\n\nDocument processed successfully using open-source AI models running in your browser.`;
+      const formattedSummary = `AI Summary of ${file.name}:\n\n${aiSummary}\n\nDocument processed successfully using Google Gemini AI.`;
       
       setSummary(formattedSummary);
       
       toast({
         title: "Document processed successfully!",
-        description: `${file.name} has been analyzed using AI.`,
+        description: `${file.name} has been analyzed using Google Gemini AI.`,
       });
     } catch (error) {
       console.error('Error processing document:', error);
@@ -97,10 +97,10 @@ const Index = () => {
             <h1 className="text-4xl font-bold text-gray-900">Learn Smart</h1>
           </div>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Upload any document and get AI-powered summaries and answers using open-source models running in your browser
+            Upload any document and get AI-powered summaries and answers using Google Gemini AI
           </p>
           <div className="mt-4 text-sm text-green-600 font-medium">
-            ✅ Completely Free • ✅ Privacy-First • ✅ No API Keys Required
+            ✅ Powered by Google Gemini • ✅ Fast & Accurate • ✅ Advanced AI Analysis
           </div>
         </div>
 

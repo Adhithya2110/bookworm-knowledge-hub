@@ -1,75 +1,71 @@
 
-import { pipeline } from '@huggingface/transformers';
+const GOOGLE_API_KEY = 'AIzaSyCZSLgJ6EFzfONFUFuob2XOGksYIbFIUHE';
+const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
 class AIService {
-  private summarizer: any = null;
-  private qaModel: any = null;
   private isInitialized = false;
 
   async initialize() {
     if (this.isInitialized) return;
     
-    console.log('Initializing AI models...');
-    
-    try {
-      // Use smaller, faster models
-      this.summarizer = await pipeline(
-        'summarization',
-        'Xenova/distilbart-cnn-6-6'
-      );
-
-      this.qaModel = await pipeline(
-        'question-answering',
-        'Xenova/distilbert-base-uncased-distilled-squad'
-      );
-
-      this.isInitialized = true;
-      console.log('AI models initialized successfully');
-    } catch (error) {
-      console.error('Error initializing AI models:', error);
-      throw new Error('Unable to initialize AI models');
-    }
+    console.log('Initializing Google Gemini AI...');
+    this.isInitialized = true;
+    console.log('Google Gemini AI initialized successfully');
   }
 
   async summarizeText(text: string): Promise<string> {
     await this.initialize();
     
-    // Remove the minimum length requirement and clean the text
     const cleanText = text.trim().replace(/\s+/g, ' ');
     
-    if (!cleanText || cleanText.length < 20) {
+    if (!cleanText || cleanText.length < 10) {
       return 'The document appears to be empty or contains very little text content.';
     }
 
     try {
-      // For shorter texts, provide a more flexible approach
-      if (cleanText.length < 100) {
-        return `Brief Summary: ${cleanText.substring(0, 200)}...`;
+      const prompt = `Please provide a comprehensive summary of the following document. Focus on key points, main ideas, and important details:
+
+${cleanText}
+
+Please format the summary in a clear, readable way with bullet points or paragraphs as appropriate.`;
+
+      const response = await fetch(`${GEMINI_API_URL}?key=${GOOGLE_API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            topP: 0.8,
+            topK: 40,
+            maxOutputTokens: 1000,
+          }
+        })
+      });
+
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
       }
 
-      // Process text in smaller chunks for better performance
-      const maxLength = 300;
-      const chunks = this.splitTextIntoChunks(cleanText, maxLength);
+      const data = await response.json();
       
-      if (chunks.length === 1 && chunks[0].length < 200) {
-        return `Document Summary: ${chunks[0]}`;
+      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+        return data.candidates[0].content.parts[0].text;
+      } else {
+        throw new Error('Invalid response format from API');
       }
-
-      const summaries = [];
-      for (const chunk of chunks.slice(0, 3)) { // Limit to 3 chunks for speed
-        const result = await this.summarizer(chunk, {
-          max_length: 100,
-          min_length: 20,
-          do_sample: false
-        });
-        summaries.push(result[0].summary_text);
-      }
-
-      return summaries.join(' ');
     } catch (error) {
       console.error('Error summarizing text:', error);
       // Fallback to simple truncation
-      return `Document Preview: ${cleanText.substring(0, 300)}...`;
+      return `Document Preview: ${cleanText.substring(0, 500)}...
+
+Note: AI summarization temporarily unavailable. This is a preview of your document content.`;
     }
   }
 
@@ -81,48 +77,52 @@ class AIService {
     }
 
     try {
-      const result = await this.qaModel({
-        question: question,
-        context: context.substring(0, 1000) // Reduced context for speed
+      const prompt = context 
+        ? `Based on the following document content, please answer this question: "${question}"
+
+Document content:
+${context.substring(0, 2000)}
+
+Please provide a detailed and accurate answer based on the document content. If the answer isn't directly available in the document, please say so and provide any relevant context you can find.`
+        : `Please answer this question: "${question}"
+
+Since no document is currently uploaded, please provide a general helpful response.`;
+
+      const response = await fetch(`${GEMINI_API_URL}?key=${GOOGLE_API_KEY}`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          contents: [{
+            parts: [{
+              text: prompt
+            }]
+          }],
+          generationConfig: {
+            temperature: 0.7,
+            topP: 0.8,
+            topK: 40,
+            maxOutputTokens: 800,
+          }
+        })
       });
 
-      if (result.score > 0.05) { // Lower threshold
-        return result.answer;
+      if (!response.ok) {
+        throw new Error(`API request failed: ${response.status}`);
+      }
+
+      const data = await response.json();
+      
+      if (data.candidates && data.candidates[0] && data.candidates[0].content) {
+        return data.candidates[0].content.parts[0].text;
       } else {
-        return "I couldn't find a specific answer in the document. Here's what I can tell you based on the content: " + context.substring(0, 200) + "...";
+        throw new Error('Invalid response format from API');
       }
     } catch (error) {
       console.error('Error answering question:', error);
-      return 'Error processing your question. Please try again.';
+      return 'Sorry, I encountered an error while processing your question. Please try again.';
     }
-  }
-
-  private splitTextIntoChunks(text: string, maxLength: number): string[] {
-    if (text.length <= maxLength) return [text];
-    
-    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
-    const chunks = [];
-    let currentChunk = '';
-
-    for (const sentence of sentences) {
-      const trimmedSentence = sentence.trim();
-      if ((currentChunk + trimmedSentence).length > maxLength) {
-        if (currentChunk) {
-          chunks.push(currentChunk.trim());
-          currentChunk = trimmedSentence + '.';
-        } else {
-          chunks.push(trimmedSentence.substring(0, maxLength));
-        }
-      } else {
-        currentChunk += trimmedSentence + '.';
-      }
-    }
-
-    if (currentChunk) {
-      chunks.push(currentChunk.trim());
-    }
-
-    return chunks.filter(chunk => chunk.length > 5);
   }
 
   async extractTextFromFile(file: File): Promise<string> {
