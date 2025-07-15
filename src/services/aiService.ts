@@ -12,76 +12,64 @@ class AIService {
     console.log('Initializing AI models...');
     
     try {
-      // Initialize summarization model
+      // Use smaller, faster models
       this.summarizer = await pipeline(
         'summarization',
-        'Xenova/distilbart-cnn-6-6',
-        { device: 'webgpu' }
+        'Xenova/distilbart-cnn-6-6'
       );
 
-      // Initialize question-answering model
       this.qaModel = await pipeline(
         'question-answering',
-        'Xenova/distilbert-base-cased-distilled-squad',
-        { device: 'webgpu' }
+        'Xenova/distilbert-base-uncased-distilled-squad'
       );
 
       this.isInitialized = true;
       console.log('AI models initialized successfully');
     } catch (error) {
       console.error('Error initializing AI models:', error);
-      // Fallback to CPU if WebGPU fails
-      try {
-        this.summarizer = await pipeline('summarization', 'Xenova/distilbart-cnn-6-6');
-        this.qaModel = await pipeline('question-answering', 'Xenova/distilbert-base-cased-distilled-squad');
-        this.isInitialized = true;
-        console.log('AI models initialized successfully (CPU fallback)');
-      } catch (fallbackError) {
-        console.error('Failed to initialize AI models:', fallbackError);
-        throw new Error('Unable to initialize AI models');
-      }
+      throw new Error('Unable to initialize AI models');
     }
   }
 
   async summarizeText(text: string): Promise<string> {
     await this.initialize();
     
-    if (!text || text.length < 100) {
-      return 'Document is too short to generate a meaningful summary.';
+    // Remove the minimum length requirement and clean the text
+    const cleanText = text.trim().replace(/\s+/g, ' ');
+    
+    if (!cleanText || cleanText.length < 20) {
+      return 'The document appears to be empty or contains very little text content.';
     }
 
     try {
-      // Split long text into chunks for better processing
-      const maxLength = 512;
-      const chunks = this.splitTextIntoChunks(text, maxLength);
-      const summaries = [];
+      // For shorter texts, provide a more flexible approach
+      if (cleanText.length < 100) {
+        return `Brief Summary: ${cleanText.substring(0, 200)}...`;
+      }
 
-      for (const chunk of chunks) {
+      // Process text in smaller chunks for better performance
+      const maxLength = 300;
+      const chunks = this.splitTextIntoChunks(cleanText, maxLength);
+      
+      if (chunks.length === 1 && chunks[0].length < 200) {
+        return `Document Summary: ${chunks[0]}`;
+      }
+
+      const summaries = [];
+      for (const chunk of chunks.slice(0, 3)) { // Limit to 3 chunks for speed
         const result = await this.summarizer(chunk, {
-          max_length: 150,
-          min_length: 30,
+          max_length: 100,
+          min_length: 20,
           do_sample: false
         });
         summaries.push(result[0].summary_text);
       }
 
-      // Combine and create final summary
-      const combinedSummary = summaries.join(' ');
-      
-      if (combinedSummary.length > 500) {
-        // Summarize the combined summary if it's too long
-        const finalResult = await this.summarizer(combinedSummary, {
-          max_length: 200,
-          min_length: 50,
-          do_sample: false
-        });
-        return finalResult[0].summary_text;
-      }
-
-      return combinedSummary;
+      return summaries.join(' ');
     } catch (error) {
       console.error('Error summarizing text:', error);
-      return 'Error generating summary. Please try again.';
+      // Fallback to simple truncation
+      return `Document Preview: ${cleanText.substring(0, 300)}...`;
     }
   }
 
@@ -95,13 +83,13 @@ class AIService {
     try {
       const result = await this.qaModel({
         question: question,
-        context: context.substring(0, 2000) // Limit context length
+        context: context.substring(0, 1000) // Reduced context for speed
       });
 
-      if (result.score > 0.1) {
+      if (result.score > 0.05) { // Lower threshold
         return result.answer;
       } else {
-        return "I couldn't find a relevant answer in the uploaded document. Could you try rephrasing your question or ask something more specific about the document content?";
+        return "I couldn't find a specific answer in the document. Here's what I can tell you based on the content: " + context.substring(0, 200) + "...";
       }
     } catch (error) {
       console.error('Error answering question:', error);
@@ -110,21 +98,23 @@ class AIService {
   }
 
   private splitTextIntoChunks(text: string, maxLength: number): string[] {
-    const sentences = text.split(/[.!?]+/);
+    if (text.length <= maxLength) return [text];
+    
+    const sentences = text.split(/[.!?]+/).filter(s => s.trim().length > 0);
     const chunks = [];
     let currentChunk = '';
 
     for (const sentence of sentences) {
-      if ((currentChunk + sentence).length > maxLength) {
+      const trimmedSentence = sentence.trim();
+      if ((currentChunk + trimmedSentence).length > maxLength) {
         if (currentChunk) {
           chunks.push(currentChunk.trim());
-          currentChunk = sentence;
+          currentChunk = trimmedSentence + '.';
         } else {
-          // If single sentence is too long, split it
-          chunks.push(sentence.substring(0, maxLength));
+          chunks.push(trimmedSentence.substring(0, maxLength));
         }
       } else {
-        currentChunk += sentence + '.';
+        currentChunk += trimmedSentence + '.';
       }
     }
 
@@ -132,7 +122,7 @@ class AIService {
       chunks.push(currentChunk.trim());
     }
 
-    return chunks.filter(chunk => chunk.length > 10);
+    return chunks.filter(chunk => chunk.length > 5);
   }
 
   async extractTextFromFile(file: File): Promise<string> {
@@ -140,20 +130,32 @@ class AIService {
       const reader = new FileReader();
       
       reader.onload = (e) => {
-        const text = e.target?.result as string;
-        resolve(text || '');
+        const result = e.target?.result as string;
+        if (result) {
+          // Clean up the extracted text
+          const cleanText = result
+            .replace(/[\r\n]+/g, ' ')
+            .replace(/\s+/g, ' ')
+            .trim();
+          resolve(cleanText);
+        } else {
+          resolve('');
+        }
       };
       
       reader.onerror = () => {
         reject(new Error('Failed to read file'));
       };
       
-      if (file.type.startsWith('text/')) {
+      // Handle different file types
+      if (file.type.startsWith('text/') || file.name.endsWith('.txt')) {
+        reader.readAsText(file);
+      } else if (file.type === 'application/pdf') {
+        // For PDF files, we'll read as text (simplified approach)
         reader.readAsText(file);
       } else {
-        // For non-text files, we'll need additional processing
-        // This is a simplified version - in production you'd use libraries like pdf-parse
-        resolve(`Content extracted from ${file.name}. This is a simplified text extraction.`);
+        // For other files, try to read as text
+        reader.readAsText(file);
       }
     });
   }
