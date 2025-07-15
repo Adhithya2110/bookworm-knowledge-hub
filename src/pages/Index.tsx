@@ -10,6 +10,7 @@ import { DocumentUpload } from '@/components/DocumentUpload';
 import { QuestionBar } from '@/components/QuestionBar';
 import { SummaryDisplay } from '@/components/SummaryDisplay';
 import { Header } from '@/components/Header';
+import { aiService } from '@/services/aiService';
 
 const Index = () => {
   const [uploadedFile, setUploadedFile] = useState<File | null>(null);
@@ -17,26 +18,38 @@ const Index = () => {
   const [summary, setSummary] = useState<string>('');
   const [isProcessing, setIsProcessing] = useState(false);
   const [questions, setQuestions] = useState<Array<{question: string, answer: string}>>([]);
+  const [isInitializing, setIsInitializing] = useState(false);
 
   const handleFileUpload = async (file: File) => {
     setUploadedFile(file);
     setIsProcessing(true);
     
     try {
-      // Simulate document processing and summarization
-      await new Promise(resolve => setTimeout(resolve, 2000));
+      // Show initialization message on first use
+      if (!isInitializing) {
+        setIsInitializing(true);
+        toast({
+          title: "Initializing AI models...",
+          description: "This may take a moment on first use.",
+        });
+      }
+
+      // Extract text from file
+      const extractedText = await aiService.extractTextFromFile(file);
+      setDocumentContent(extractedText);
       
-      const mockContent = `Document: ${file.name}\n\nThis document contains important information about the topic. The content has been successfully processed and is ready for analysis.`;
-      const mockSummary = `Summary of ${file.name}:\n\n• Key points extracted from the document\n• Main concepts and ideas identified\n• Important details highlighted\n• Conclusions and recommendations\n\nThis summary provides a comprehensive overview of the document's content, making it easy to understand the essential information quickly.`;
+      // Generate AI summary
+      const aiSummary = await aiService.summarizeText(extractedText);
+      const formattedSummary = `AI Summary of ${file.name}:\n\n${aiSummary}\n\nDocument processed successfully using open-source AI models running in your browser.`;
       
-      setDocumentContent(mockContent);
-      setSummary(mockSummary);
+      setSummary(formattedSummary);
       
       toast({
         title: "Document processed successfully!",
-        description: `${file.name} has been analyzed and summarized.`,
+        description: `${file.name} has been analyzed using AI.`,
       });
     } catch (error) {
+      console.error('Error processing document:', error);
       toast({
         title: "Error processing document",
         description: "Please try again with a different file.",
@@ -44,21 +57,33 @@ const Index = () => {
       });
     } finally {
       setIsProcessing(false);
+      setIsInitializing(false);
     }
   };
 
   const handleQuestion = async (question: string) => {
-    // Simulate AI response
-    await new Promise(resolve => setTimeout(resolve, 1000));
-    
-    const mockAnswer = documentContent 
-      ? `Based on the uploaded document "${uploadedFile?.name}", here's the answer to your question: ${question}\n\nThe document provides relevant information that addresses your query. This response is generated based on the content analysis of your uploaded file.`
-      : `I'll answer your question: ${question}\n\nSince no document is currently uploaded, I'm providing a general response. For more specific answers, please upload a document first.`;
-    
-    const newQA = { question, answer: mockAnswer };
-    setQuestions(prev => [...prev, newQA]);
-    
-    return mockAnswer;
+    try {
+      let answer: string;
+      
+      if (documentContent) {
+        // Answer based on document context
+        answer = await aiService.answerQuestion(question, documentContent);
+      } else {
+        // General response when no document is uploaded
+        answer = `I'll answer your question: ${question}\n\nSince no document is currently uploaded, I'm providing a general response. For document-specific answers, please upload a document first.`;
+      }
+      
+      const newQA = { question, answer };
+      setQuestions(prev => [...prev, newQA]);
+      
+      return answer;
+    } catch (error) {
+      console.error('Error handling question:', error);
+      const errorAnswer = "Sorry, I encountered an error while processing your question. Please try again.";
+      const newQA = { question, answer: errorAnswer };
+      setQuestions(prev => [...prev, newQA]);
+      return errorAnswer;
+    }
   };
 
   return (
@@ -72,14 +97,17 @@ const Index = () => {
             <h1 className="text-4xl font-bold text-gray-900">Learn Smart</h1>
           </div>
           <p className="text-xl text-gray-600 max-w-3xl mx-auto">
-            Upload any document and get AI-powered summaries, insights, and answers to your questions
+            Upload any document and get AI-powered summaries and answers using open-source models running in your browser
           </p>
+          <div className="mt-4 text-sm text-green-600 font-medium">
+            ✅ Completely Free • ✅ Privacy-First • ✅ No API Keys Required
+          </div>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 mb-8">
           <DocumentUpload 
             onFileUpload={handleFileUpload} 
-            isProcessing={isProcessing}
+            isProcessing={isProcessing || isInitializing}
             uploadedFile={uploadedFile}
           />
           
