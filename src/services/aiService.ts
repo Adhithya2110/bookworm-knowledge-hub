@@ -177,59 +177,95 @@ Provide a helpful and informative response based on your general knowledge.`;
 
   private async extractTextFromPDF(file: File): Promise<string> {
     try {
-      console.log('Starting PDF text extraction...');
-      const arrayBuffer = await file.arrayBuffer();
-      console.log('PDF file size:', arrayBuffer.byteLength, 'bytes');
+      console.log('Starting PDF text extraction for:', file.name);
+      console.log('File size:', file.size, 'bytes');
       
+      const arrayBuffer = await file.arrayBuffer();
+      console.log('ArrayBuffer created, size:', arrayBuffer.byteLength);
+      
+      // Configure PDF.js with more permissive settings
       const loadingTask = pdfjsLib.getDocument({ 
         data: arrayBuffer,
-        useSystemFonts: true
+        useSystemFonts: true,
+        disableFontFace: false,
+        verbosity: 0 // Reduce PDF.js console output
       });
       
       const pdf = await loadingTask.promise;
-      console.log('PDF loaded, pages:', pdf.numPages);
+      console.log('PDF loaded successfully. Pages:', pdf.numPages);
       
       let fullText = '';
+      let totalItems = 0;
       
-      // Extract text from each page
+      // Extract text from each page with better error handling
       for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
         try {
-          console.log(`Processing page ${pageNum}/${pdf.numPages}`);
+          console.log(`Processing page ${pageNum}/${pdf.numPages}...`);
           const page = await pdf.getPage(pageNum);
           const textContent = await page.getTextContent();
           
+          console.log(`Page ${pageNum} has ${textContent.items.length} text items`);
+          totalItems += textContent.items.length;
+          
+          // Extract text with better formatting preservation
           const pageText = textContent.items
             .map((item: any) => {
-              if ('str' in item) {
-                return item.str;
+              if ('str' in item && item.str) {
+                return item.str.trim();
               }
               return '';
             })
-            .filter(text => text.trim().length > 0)
+            .filter(text => text.length > 0)
             .join(' ');
           
           if (pageText.trim()) {
-            fullText += pageText + ' ';
+            fullText += pageText + '\n';
+            console.log(`Page ${pageNum} extracted ${pageText.length} characters`);
+          } else {
+            console.log(`Page ${pageNum} contained no readable text`);
           }
           
-          console.log(`Page ${pageNum} text length:`, pageText.length);
         } catch (pageError) {
           console.error(`Error processing page ${pageNum}:`, pageError);
           // Continue with other pages
         }
       }
       
-      const cleanedText = fullText.trim().replace(/\s+/g, ' ');
-      console.log('Total extracted text length:', cleanedText.length);
+      console.log(`Total text items processed: ${totalItems}`);
+      console.log(`Raw text length: ${fullText.length}`);
       
-      if (cleanedText.length > 10) {
+      // Clean up the text
+      const cleanedText = fullText
+        .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
+        .replace(/\n\s*\n/g, '\n') // Remove empty lines
+        .trim();
+      
+      console.log(`Final cleaned text length: ${cleanedText.length}`);
+      console.log('Text preview:', cleanedText.substring(0, 200));
+      
+      // Check if we extracted meaningful content
+      if (cleanedText.length > 20) {
+        console.log('✅ PDF text extraction successful');
         return cleanedText;
+      } else if (totalItems > 0) {
+        console.log('⚠️ PDF has text items but extraction yielded little content');
+        return `PDF contains ${totalItems} text elements but extraction yielded limited readable content. This might be a formatted resume or contain special characters. The document appears to have text but may require manual review.`;
       } else {
-        return 'Could not extract readable text from this PDF file. The file may be image-based, protected, or contain non-text content.';
+        console.log('❌ No text items found in PDF');
+        return 'This PDF appears to contain no extractable text. It might be an image-based document or have text embedded as graphics. Consider converting it to a text-based format.';
       }
+      
     } catch (error) {
-      console.error('Error extracting PDF text:', error);
-      return 'Error reading PDF file. Please try a different file or ensure the PDF contains readable text.';
+      console.error('❌ Error extracting PDF text:', error);
+      
+      // Provide more specific error messages
+      if (error.message?.includes('Invalid PDF')) {
+        return 'The uploaded file appears to be corrupted or is not a valid PDF. Please try uploading a different PDF file.';
+      } else if (error.message?.includes('password')) {
+        return 'This PDF is password-protected. Please upload an unprotected version of the document.';
+      } else {
+        return `Error reading PDF file: ${error.message || 'Unknown error'}. Please try a different file or ensure the PDF contains readable text.`;
+      }
     }
   }
 }
