@@ -1,4 +1,3 @@
-
 import React, { useState, useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -36,13 +35,19 @@ const Index = () => {
 
       // Extract text from file
       const extractedText = await aiService.extractTextFromFile(file);
+      console.log('Extracted text preview:', extractedText.substring(0, 200));
       setDocumentContent(extractedText);
       
-      // Generate AI summary
-      const aiSummary = await aiService.summarizeText(extractedText);
-      const formattedSummary = `AI Summary of ${file.name}:\n\n${aiSummary}\n\nDocument processed successfully using Google Gemini AI.`;
-      
-      setSummary(formattedSummary);
+      // Only generate summary if we have meaningful content
+      if (extractedText && extractedText.length > 50 && !extractedText.startsWith('Could not extract') && !extractedText.startsWith('Error reading')) {
+        // Generate AI summary
+        const aiSummary = await aiService.summarizeText(extractedText);
+        const formattedSummary = `AI Summary of ${file.name}:\n\n${aiSummary}\n\nDocument processed successfully using Google Gemini AI.`;
+        setSummary(formattedSummary);
+      } else {
+        // Set a message indicating the issue with text extraction
+        setSummary(`Document "${file.name}" was uploaded but text extraction was limited. You can still ask questions and I'll do my best to help with general knowledge.`);
+      }
       
       toast({
         title: "Document processed successfully!",
@@ -75,15 +80,8 @@ const Index = () => {
 
   const handleQuestion = async (question: string) => {
     try {
-      let answer: string;
-      
-      if (documentContent) {
-        // Answer based on document context
-        answer = await aiService.answerQuestion(question, documentContent);
-      } else {
-        // General response when no document is uploaded
-        answer = `I'll answer your question: ${question}\n\nSince no document is currently uploaded, I'm providing a general response. For document-specific answers, please upload a document first.`;
-      }
+      // Always try to answer the question, with or without document context
+      const answer = await aiService.answerQuestion(question, documentContent);
       
       const newQA = { question, answer };
       setQuestions(prev => [...prev, newQA]);
