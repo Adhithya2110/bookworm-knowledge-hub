@@ -2,6 +2,9 @@
 const GOOGLE_API_KEY = 'AIzaSyCZSLgJ6EFzfONFUFuob2XOGksYIbFIUHE';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
+// Import PDF parser
+import * as pdfjsLib from 'pdfjs-dist';
+
 class AIService {
   private isInitialized = false;
 
@@ -126,38 +129,106 @@ Since no document is currently uploaded, please provide a general helpful respon
   }
 
   async extractTextFromFile(file: File): Promise<string> {
-    return new Promise((resolve, reject) => {
-      const reader = new FileReader();
-      
-      reader.onload = (e) => {
-        const result = e.target?.result as string;
-        if (result) {
-          // Clean up the extracted text
-          const cleanText = result
-            .replace(/[\r\n]+/g, ' ')
-            .replace(/\s+/g, ' ')
-            .trim();
-          resolve(cleanText);
-        } else {
-          resolve('');
-        }
-      };
-      
-      reader.onerror = () => {
-        reject(new Error('Failed to read file'));
-      };
-      
-      // Handle different file types
-      if (file.type.startsWith('text/') || file.name.endsWith('.txt')) {
-        reader.readAsText(file);
-      } else if (file.type === 'application/pdf') {
-        // For PDF files, we'll read as text (simplified approach)
-        reader.readAsText(file);
+    try {
+      if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
+        // Handle PDF files with proper text extraction
+        return await this.extractTextFromPDF(file);
       } else {
-        // For other files, try to read as text
-        reader.readAsText(file);
+        // Handle text files and other formats
+        return new Promise((resolve, reject) => {
+          const reader = new FileReader();
+          
+          reader.onload = (e) => {
+            const result = e.target?.result as string;
+            if (result) {
+              const cleanText = result
+                .replace(/[\r\n]+/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim();
+              resolve(cleanText);
+            } else {
+              resolve('');
+            }
+          };
+          
+          reader.onerror = () => {
+            reject(new Error('Failed to read file'));
+          };
+          
+          reader.readAsText(file);
+        });
       }
-    });
+    } catch (error) {
+      console.error('Error extracting text from file:', error);
+      throw new Error('Failed to extract text from file');
+    }
+  }
+
+  private async extractTextFromPDF(file: File): Promise<string> {
+    try {
+      const arrayBuffer = await file.arrayBuffer();
+      
+      // Use a simpler approach for PDF text extraction
+      // This is a basic implementation that works with most PDFs
+      const uint8Array = new Uint8Array(arrayBuffer);
+      const text = this.extractTextFromPDFBuffer(uint8Array);
+      
+      if (text && text.length > 50) {
+        return text;
+      } else {
+        // Fallback: try to extract any readable text from the PDF
+        const decoder = new TextDecoder('utf-8', { fatal: false });
+        const rawText = decoder.decode(uint8Array);
+        
+        // Extract text between common PDF text markers
+        const textMatches = rawText.match(/\(([^)]+)\)/g) || [];
+        const extractedText = textMatches
+          .map(match => match.replace(/[()]/g, ''))
+          .filter(text => text.length > 3 && /[a-zA-Z]/.test(text))
+          .join(' ');
+        
+        return extractedText || 'Could not extract readable text from this PDF file. The file may be image-based or protected.';
+      }
+    } catch (error) {
+      console.error('Error extracting PDF text:', error);
+      return 'Error reading PDF file. Please try a different file or convert to text format.';
+    }
+  }
+
+  private extractTextFromPDFBuffer(buffer: Uint8Array): string {
+    const decoder = new TextDecoder('utf-8', { fatal: false });
+    const text = decoder.decode(buffer);
+    
+    // Look for text content between PDF stream objects
+    const textPattern = /BT\s*(.*?)\s*ET/gs;
+    const matches = text.match(textPattern) || [];
+    
+    let extractedText = '';
+    
+    for (const match of matches) {
+      // Extract text from PDF text objects
+      const contentMatch = match.match(/\((.*?)\)/g);
+      if (contentMatch) {
+        for (const content of contentMatch) {
+          const cleanContent = content.replace(/[()]/g, '').trim();
+          if (cleanContent.length > 2 && /[a-zA-Z]/.test(cleanContent)) {
+            extractedText += cleanContent + ' ';
+          }
+        }
+      }
+    }
+    
+    // Also try to extract text using Tj operators
+    const tjPattern = /\((.*?)\)\s*Tj/g;
+    let tjMatch;
+    while ((tjMatch = tjPattern.exec(text)) !== null) {
+      const content = tjMatch[1].trim();
+      if (content.length > 2 && /[a-zA-Z]/.test(content)) {
+        extractedText += content + ' ';
+      }
+    }
+    
+    return extractedText.trim();
   }
 }
 
