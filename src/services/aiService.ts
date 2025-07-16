@@ -2,8 +2,11 @@
 const GOOGLE_API_KEY = 'AIzaSyCZSLgJ6EFzfONFUFuob2XOGksYIbFIUHE';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
 
-// Import PDF parser
-import * as pdfParse from 'pdf-parse';
+// Import PDF.js for browser-compatible PDF parsing
+import * as pdfjsLib from 'pdfjs-dist';
+
+// Set up PDF.js worker
+pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
 
 class AIService {
   private isInitialized = false;
@@ -131,7 +134,7 @@ Since no document is currently uploaded, please provide a general helpful respon
   async extractTextFromFile(file: File): Promise<string> {
     try {
       if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-        // Handle PDF files with pdf-parse
+        // Handle PDF files with pdfjs-dist
         return await this.extractTextFromPDF(file);
       } else {
         // Handle text files and other formats
@@ -167,10 +170,24 @@ Since no document is currently uploaded, please provide a general helpful respon
   private async extractTextFromPDF(file: File): Promise<string> {
     try {
       const arrayBuffer = await file.arrayBuffer();
-      const data = await pdfParse(arrayBuffer);
+      const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
       
-      if (data.text && data.text.length > 10) {
-        return data.text.trim();
+      let fullText = '';
+      
+      // Extract text from each page
+      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
+        const page = await pdf.getPage(pageNum);
+        const textContent = await page.getTextContent();
+        
+        const pageText = textContent.items
+          .map((item: any) => item.str)
+          .join(' ');
+        
+        fullText += pageText + ' ';
+      }
+      
+      if (fullText.trim().length > 10) {
+        return fullText.trim();
       } else {
         return 'Could not extract readable text from this PDF file. The file may be image-based or protected.';
       }
