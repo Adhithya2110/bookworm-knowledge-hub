@@ -61,6 +61,18 @@ const Index = () => {
     }
   };
 
+  const handleFileRemove = () => {
+    setUploadedFile(null);
+    setDocumentContent('');
+    setSummary('');
+    setQuestions([]);
+    
+    toast({
+      title: "Document removed",
+      description: "You can now upload a new document.",
+    });
+  };
+
   const handleQuestion = async (question: string) => {
     try {
       let answer: string;
@@ -109,6 +121,7 @@ const Index = () => {
             onFileUpload={handleFileUpload} 
             isProcessing={isProcessing || isInitializing}
             uploadedFile={uploadedFile}
+            onFileRemove={handleFileRemove}
           />
           
           <QuestionBar 

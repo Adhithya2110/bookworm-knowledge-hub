@@ -2,18 +2,20 @@
 import React, { useRef } from 'react';
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
-import { Upload, FileText, FileImage, FileSpreadsheet, Presentation, File, Loader2 } from 'lucide-react';
+import { Upload, FileText, FileImage, FileSpreadsheet, Presentation, File, Loader2, X } from 'lucide-react';
 
 interface DocumentUploadProps {
   onFileUpload: (file: File) => void;
   isProcessing: boolean;
   uploadedFile: File | null;
+  onFileRemove?: () => void;
 }
 
 export const DocumentUpload: React.FC<DocumentUploadProps> = ({ 
   onFileUpload, 
   isProcessing, 
-  uploadedFile 
+  uploadedFile,
+  onFileRemove 
 }) => {
   const fileInputRef = useRef<HTMLInputElement>(null);
 
@@ -33,6 +35,16 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({
     const file = event.dataTransfer.files?.[0];
     if (file) {
       onFileUpload(file);
+    }
+  };
+
+  const handleRemoveFile = () => {
+    if (onFileRemove) {
+      onFileRemove();
+    }
+    // Reset file input
+    if (fileInputRef.current) {
+      fileInputRef.current.value = '';
     }
   };
 
@@ -90,7 +102,18 @@ export const DocumentUpload: React.FC<DocumentUploadProps> = ({
               <p className="text-sm text-gray-500">This may take a few moments</p>
             </div>
           ) : uploadedFile ? (
-            <div className="flex flex-col items-center">
+            <div className="flex flex-col items-center relative">
+              <Button
+                variant="outline"
+                size="icon"
+                className="absolute -top-2 -right-2 h-6 w-6 rounded-full bg-red-500 hover:bg-red-600 text-white border-red-500"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  handleRemoveFile();
+                }}
+              >
+                <X className="h-3 w-3" />
+              </Button>
               {getFileIcon(uploadedFile.name)}
               <p className="text-lg font-medium text-gray-700 mt-2">{uploadedFile.name}</p>
               <p className="text-sm text-gray-500">Document uploaded successfully</p>
