@@ -1,12 +1,6 @@
-
 const GOOGLE_API_KEY = 'AIzaSyCZSLgJ6EFzfONFUFuob2XOGksYIbFIUHE';
 const GEMINI_API_URL = 'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent';
-
-// Import PDF.js for browser-compatible PDF parsing
-import * as pdfjsLib from 'pdfjs-dist';
-
-// Set up PDF.js worker
-pdfjsLib.GlobalWorkerOptions.workerSrc = `//cdnjs.cloudflare.com/ajax/libs/pdf.js/3.11.174/pdf.worker.min.js`;
+const PYTHON_API_URL = 'http://localhost:5000';
 
 class AIService {
   private isInitialized = false;
@@ -141,8 +135,8 @@ Provide a helpful and informative response based on your general knowledge.`;
     
     try {
       if (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf')) {
-        // Handle PDF files with pdfjs-dist
-        return await this.extractTextFromPDF(file);
+        // Use Python backend for PDF extraction
+        return await this.extractTextFromPDFViaPython(file);
       } else {
         // Handle text files and other formats
         return new Promise((resolve, reject) => {
@@ -175,96 +169,48 @@ Provide a helpful and informative response based on your general knowledge.`;
     }
   }
 
-  private async extractTextFromPDF(file: File): Promise<string> {
+  private async extractTextFromPDFViaPython(file: File): Promise<string> {
     try {
-      console.log('Starting PDF text extraction for:', file.name);
+      console.log('Sending PDF to Python backend for extraction:', file.name);
       console.log('File size:', file.size, 'bytes');
       
-      const arrayBuffer = await file.arrayBuffer();
-      console.log('ArrayBuffer created, size:', arrayBuffer.byteLength);
+      const formData = new FormData();
+      formData.append('file', file);
       
-      // Configure PDF.js with more permissive settings
-      const loadingTask = pdfjsLib.getDocument({ 
-        data: arrayBuffer,
-        useSystemFonts: true,
-        disableFontFace: false,
-        verbosity: 0 // Reduce PDF.js console output
+      const response = await fetch(`${PYTHON_API_URL}/extract-pdf`, {
+        method: 'POST',
+        body: formData,
       });
       
-      const pdf = await loadingTask.promise;
-      console.log('PDF loaded successfully. Pages:', pdf.numPages);
-      
-      let fullText = '';
-      let totalItems = 0;
-      
-      // Extract text from each page with better error handling
-      for (let pageNum = 1; pageNum <= pdf.numPages; pageNum++) {
-        try {
-          console.log(`Processing page ${pageNum}/${pdf.numPages}...`);
-          const page = await pdf.getPage(pageNum);
-          const textContent = await page.getTextContent();
-          
-          console.log(`Page ${pageNum} has ${textContent.items.length} text items`);
-          totalItems += textContent.items.length;
-          
-          // Extract text with better formatting preservation
-          const pageText = textContent.items
-            .map((item: any) => {
-              if ('str' in item && item.str) {
-                return item.str.trim();
-              }
-              return '';
-            })
-            .filter(text => text.length > 0)
-            .join(' ');
-          
-          if (pageText.trim()) {
-            fullText += pageText + '\n';
-            console.log(`Page ${pageNum} extracted ${pageText.length} characters`);
-          } else {
-            console.log(`Page ${pageNum} contained no readable text`);
-          }
-          
-        } catch (pageError) {
-          console.error(`Error processing page ${pageNum}:`, pageError);
-          // Continue with other pages
-        }
+      if (!response.ok) {
+        throw new Error(`Python API request failed: ${response.status}`);
       }
       
-      console.log(`Total text items processed: ${totalItems}`);
-      console.log(`Raw text length: ${fullText.length}`);
+      const data = await response.json();
       
-      // Clean up the text
-      const cleanedText = fullText
-        .replace(/\s+/g, ' ') // Replace multiple whitespace with single space
-        .replace(/\n\s*\n/g, '\n') // Remove empty lines
-        .trim();
+      if (data.error) {
+        throw new Error(data.error);
+      }
       
-      console.log(`Final cleaned text length: ${cleanedText.length}`);
-      console.log('Text preview:', cleanedText.substring(0, 200));
+      const extractedText = data.text || '';
+      console.log('✅ Python PDF extraction successful');
+      console.log('Extracted text length:', extractedText.length);
+      console.log('Text preview:', extractedText.substring(0, 200));
       
-      // Check if we extracted meaningful content
-      if (cleanedText.length > 20) {
-        console.log('✅ PDF text extraction successful');
-        return cleanedText;
-      } else if (totalItems > 0) {
-        console.log('⚠️ PDF has text items but extraction yielded little content');
-        return `PDF contains ${totalItems} text elements but extraction yielded limited readable content. This might be a formatted resume or contain special characters. The document appears to have text but may require manual review.`;
+      if (extractedText.length > 20) {
+        return extractedText;
       } else {
-        console.log('❌ No text items found in PDF');
-        return 'This PDF appears to contain no extractable text. It might be an image-based document or have text embedded as graphics. Consider converting it to a text-based format.';
+        return 'PDF was processed but contained very little extractable text. This might be an image-based PDF or contain special formatting.';
       }
       
     } catch (error) {
-      console.error('❌ Error extracting PDF text:', error);
+      console.error('❌ Error with Python PDF extraction:', error);
       
-      // Provide more specific error messages
-      if (error.message?.includes('Invalid PDF')) {
-        return 'The uploaded file appears to be corrupted or is not a valid PDF. Please try uploading a different PDF file.';
-      } else if (error.message?.includes('password')) {
-        return 'This PDF is password-protected. Please upload an unprotected version of the document.';
+      // Provide specific error messages
+      if (error.message?.includes('Failed to fetch') || error.message?.includes('NetworkError')) {
+        return 'Could not connect to Python backend. Please ensure your Python server is running on http://localhost:5000 and try again.';
       } else {
-        return `Error reading PDF file: ${error.message || 'Unknown error'}. Please try a different file or ensure the PDF contains readable text.`;
+        return `Error extracting PDF text: ${error.message}. Please check your Python backend server.`;
       }
     }
   }
